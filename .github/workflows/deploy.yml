@@ -1,0 +1,24 @@
+name: Deploy Backend
+
+# Only deploys after the CI workflow has finished successfully on main — a push
+# straight to `on: push` would deploy even if lint/type-check failed.
+on:
+  workflow_run:
+    workflows: ['Backend CI']
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and redeploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/apps/backend
+            bash deploy/deploy.sh

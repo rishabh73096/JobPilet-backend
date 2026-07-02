@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.production
+.env.staging
+.env*.local
+*.tsbuildinfo
+*.log
+npm-debug.log*
+.DS_Store

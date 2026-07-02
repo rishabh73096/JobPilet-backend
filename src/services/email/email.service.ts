@@ -1,0 +1,226 @@
+import { emailRepo } from './email.repo'
+import { applicationRepo } from '@/services/application/application.repo'
+import { userRepo } from '@/services/user/user.repo'
+import { generateApplicationEmail } from '@/ai/email-generator'
+import { resend } from '@/email/resend'
+import { emailQueue } from '@/jobs/email.queue'
+import { interpolateTemplate } from '@/utils/template'
+import { EmailNotFoundError } from './email.errors'
+import { AppError } from '@/middleware/error.middleware'
+import { toPublicEmail, type EmailStatus } from '@/models/email.model'
+import { env } from '@/config/env'
+import type {
+  GenerateEmailDto,
+  UpdateEmailDto,
+  SendEmailDto,
+  ScheduleEmailDto,
+  BulkScheduleDto,
+} from '@/validators/email.validator'
+
+function isPopulatedCompany(company: unknown): company is { name: string } {
+  return typeof company === 'object' && company !== null && 'name' in company
+}
+
+export const emailService = {
+  generate: async (owner: string, data: GenerateEmailDto) => {
+    const [application, user] = await Promise.all([
+      applicationRepo.findById(data.applicationId, owner),
+      userRepo.findById(owner),
+    ])
+    if (!application) throw new AppError(400, 'Invalid application')
+    if (!user) throw new AppError(401, 'User not found')
+    if (!isPopulatedCompany(application.company)) {
+      throw new AppError(500, 'Company failed to populate')
+    }
+
+    const { subject, body } = await generateApplicationEmail({
+      applicantName: user.name,
+      role: application.role,
+      companyName: application.company.name,
+      jobDescription: application.jobDescription ?? undefined,
+      tone: data.tone,
+    })
+
+    const email = await emailRepo.create({
+      owner,
+      application: data.applicationId,
+      subject,
+      body,
+      tone: data.tone,
+    })
+    return toPublicEmail(email)
+  },
+
+  getAllForApplication: async (applicationId: string, owner: string) =>
+    (await emailRepo.findAllByApplication(applicationId, owner)).map(toPublicEmail),
+
+  getAll: async (owner: string, status?: EmailStatus) =>
+    (await emailRepo.findAllByOwner(owner, status)).map(toPublicEmail),
+
+  getStats: (owner: string) => emailRepo.countsByStatus(owner),
+
+  getById: async (id: string, owner: string) => {
+    const email = await emailRepo.findById(id, owner)
+    if (!email) throw new EmailNotFoundError(id)
+    return toPublicEmail(email)
+  },
+
+  update: async (id: string, owner: string, data: UpdateEmailDto) => {
+    const email = await emailRepo.findById(id, owner)
+    if (!email) throw new EmailNotFoundError(id)
+    if (email.status !== 'draft') {
+      throw new AppError(400, `Cannot edit an email with status "${email.status}"`)
+    }
+
+    Object.assign(email, data)
+    await email.save()
+    return toPublicEmail(email)
+  },
+
+  // Core delivery logic — shared by the immediate "send now" endpoint and the
+  // BullMQ worker processing scheduled sends.
+  deliverEmail: async (emailId: string, owner: string) => {
+    const email = await emailRepo.findById(emailId, owner)
+    if (!email) throw new EmailNotFoundError(emailId)
+    if (email.status === 'sent') return toPublicEmail(email)
+
+    if (!email.to) {
+      email.status = 'failed'
+      email.errorMessage = 'No recipient email set'
+      await email.save()
+      throw new AppError(400, 'Recipient email is required')
+    }
+
+    const application = await applicationRepo.findById(email.application.toString(), owner)
+    const companyName =
+      application && isPopulatedCompany(application.company) ? application.company.name : ''
+
+    const vars = { company_name: companyName, recruiter_name: email.recruiterName ?? '' }
+    const subject = interpolateTemplate(email.subject, vars)
+    const bodyText = interpolateTemplate(email.body, vars)
+
+    const trackingPixel =
+      `<img src="${env.API_URL}/api/emails/track/${email.trackingId}" ` +
+      `width="1" height="1" alt="" style="display:none" />`
+    const htmlBody = `${bodyText.replace(/\n/g, '<br/>')}${trackingPixel}`
+
+    try {
+      const result = await resend.emails.send({
+        from: env.EMAIL_FROM,
+        to: email.to,
+        subject,
+        html: htmlBody,
+      })
+      if (result.error) throw new Error(result.error.message)
+
+      email.status = 'sent'
+      email.sentAt = new Date()
+      email.resendId = result.data?.id
+      email.jobId = undefined
+      await email.save()
+
+      await applicationRepo.recordEmailSent(email.application.toString(), owner)
+    } catch (err) {
+      email.status = 'failed'
+      email.errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      await email.save()
+      throw new AppError(502, 'Failed to send email')
+    }
+
+    return toPublicEmail(email)
+  },
+
+  send: async (id: string, owner: string, data: SendEmailDto) => {
+    const email = await emailRepo.findById(id, owner)
+    if (!email) throw new EmailNotFoundError(id)
+    if (email.status === 'sent') throw new AppError(400, 'Email has already been sent')
+    if (email.status === 'scheduled') {
+      throw new AppError(400, 'Email is already scheduled — cancel the schedule first')
+    }
+
+    if (data.to) email.to = data.to
+    if (data.recruiterName !== undefined) email.recruiterName = data.recruiterName
+    await email.save()
+
+    return emailService.deliverEmail(id, owner)
+  },
+
+  schedule: async (id: string, owner: string, data: ScheduleEmailDto) => {
+    const email = await emailRepo.findById(id, owner)
+    if (!email) throw new EmailNotFoundError(id)
+    if (email.status !== 'draft') {
+      throw new AppError(400, `Cannot schedule an email with status "${email.status}"`)
+    }
+
+    if (data.to) email.to = data.to
+    if (data.recruiterName !== undefined) email.recruiterName = data.recruiterName
+    if (!email.to) throw new AppError(400, 'Recipient email is required to schedule')
+
+    const delay = Math.max(0, data.sendAt.getTime() - Date.now())
+    const job = await emailQueue.add('send', { emailId: id, owner }, { delay })
+
+    email.status = 'scheduled'
+    email.scheduledAt = data.sendAt
+    email.jobId = job.id
+    await email.save()
+
+    return toPublicEmail(email)
+  },
+
+  cancelSchedule: async (id: string, owner: string) => {
+    const email = await emailRepo.findById(id, owner)
+    if (!email) throw new EmailNotFoundError(id)
+    if (email.status !== 'scheduled') throw new AppError(400, 'Email is not scheduled')
+
+    if (email.jobId) {
+      const job = await emailQueue.getJob(email.jobId)
+      if (job) await job.remove()
+    }
+
+    email.status = 'draft'
+    email.scheduledAt = undefined
+    email.jobId = undefined
+    await email.save()
+
+    return toPublicEmail(email)
+  },
+
+  bulkSchedule: async (owner: string, data: BulkScheduleDto) => {
+    const results: { id: string; success: boolean; error?: string }[] = []
+
+    for (let i = 0; i < data.emailIds.length; i++) {
+      const id = data.emailIds[i]
+      try {
+        const email = await emailRepo.findById(id, owner)
+        if (!email) throw new Error('Not found')
+        if (email.status !== 'draft') {
+          throw new Error(`Cannot schedule an email with status "${email.status}"`)
+        }
+        if (!email.to) throw new Error('Recipient email is required')
+
+        const sendAt = new Date(data.sendAt.getTime() + i * data.staggerSeconds * 1000)
+        const delay = Math.max(0, sendAt.getTime() - Date.now())
+        const job = await emailQueue.add('send', { emailId: id, owner }, { delay })
+
+        email.status = 'scheduled'
+        email.scheduledAt = sendAt
+        email.jobId = job.id
+        await email.save()
+
+        results.push({ id, success: true })
+      } catch (err) {
+        results.push({
+          id,
+          success: false,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        })
+      }
+    }
+
+    return results
+  },
+
+  trackOpen: async (trackingId: string) => {
+    await emailRepo.trackOpen(trackingId)
+  },
+}
