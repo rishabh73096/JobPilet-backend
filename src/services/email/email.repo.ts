@@ -32,6 +32,13 @@ export const emailRepo = {
     return counts
   },
 
+  countOpened: (owner: string) =>
+    EmailModel.countDocuments({
+      owner: new Types.ObjectId(owner),
+      status: 'sent',
+      openCount: { $gt: 0 },
+    }),
+
   trackOpen: async (trackingId: string) => {
     const email = await EmailModel.findOne({ trackingId })
     if (!email) return null

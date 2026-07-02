@@ -57,7 +57,13 @@ export const emailService = {
   getAll: async (owner: string, status?: EmailStatus) =>
     (await emailRepo.findAllByOwner(owner, status)).map(toPublicEmail),
 
-  getStats: (owner: string) => emailRepo.countsByStatus(owner),
+  getStats: async (owner: string) => {
+    const [counts, opened] = await Promise.all([
+      emailRepo.countsByStatus(owner),
+      emailRepo.countOpened(owner),
+    ])
+    return { ...counts, opened }
+  },
 
   getById: async (id: string, owner: string) => {
     const email = await emailRepo.findById(id, owner)
