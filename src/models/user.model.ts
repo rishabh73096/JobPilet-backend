@@ -8,6 +8,8 @@ const userSchema = new Schema(
     avatar: { type: String },
     role: { type: String, enum: ['admin', 'user'], default: 'user' },
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+    resumeKey: { type: String },
+    resumeName: { type: String },
   },
   { timestamps: true }
 )
@@ -23,6 +25,8 @@ export interface PublicUser {
   email: string
   avatarUrl?: string
   role: string
+  resumeKey?: string
+  resumeName?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -34,6 +38,8 @@ export function toPublicUser(user: User): PublicUser {
     email: user.email,
     avatarUrl: user.avatar ?? undefined,
     role: user.role,
+    resumeKey: user.resumeKey ?? undefined,
+    resumeName: user.resumeName ?? undefined,
     createdAt: user.createdAt as unknown as Date,
     updatedAt: user.updatedAt as unknown as Date,
   }

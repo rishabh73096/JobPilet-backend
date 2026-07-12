@@ -34,4 +34,23 @@ export const applicationRepo = {
       { _id: id, owner },
       { $inc: { emailsSentCount: 1 }, $set: { lastEmailSentAt: new Date() } }
     ),
+
+  countsByStatus: async (owner: string) => {
+    const results = await ApplicationModel.aggregate<{ _id: string; count: number }>([
+      { $match: { owner: new Types.ObjectId(owner) } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ])
+    const counts: Record<string, number> = { applied: 0, interviewing: 0, offer: 0, rejected: 0 }
+    for (const r of results) {
+      if (r._id in counts) counts[r._id] = r.count
+    }
+    return counts
+  },
+
+  findRecent: (owner: string, limit = 5) =>
+    ApplicationModel.find({ owner })
+      .populate('company', 'name')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean<WithPopulatedCompany<Application>[]>(),
 }

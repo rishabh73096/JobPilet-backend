@@ -15,6 +15,8 @@ const applicationSchema = new Schema(
     notes: { type: String, maxlength: 2000 },
     emailsSentCount: { type: Number, default: 0 },
     lastEmailSentAt: { type: Date },
+    resumeKey: { type: String },
+    resumeName: { type: String },
   },
   { timestamps: true }
 )
@@ -34,6 +36,8 @@ export interface PublicApplication {
   notes?: string
   emailsSentCount: number
   lastEmailSentAt?: Date
+  resumeKey?: string
+  resumeName?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -55,6 +59,8 @@ export function toPublicApplication(
     notes: app.notes ?? undefined,
     emailsSentCount: app.emailsSentCount,
     lastEmailSentAt: app.lastEmailSentAt as unknown as Date | undefined,
+    resumeKey: app.resumeKey ?? undefined,
+    resumeName: app.resumeName ?? undefined,
     createdAt: app.createdAt as unknown as Date,
     updatedAt: app.updatedAt as unknown as Date,
   }

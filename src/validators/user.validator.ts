@@ -4,6 +4,8 @@ export const updateUserSchema = z.object({
   name: z.string().min(2).max(50).optional(),
   email: z.string().email().optional(),
   avatar: z.string().url().optional(),
+  resumeKey: z.string().optional(),
+  resumeName: z.string().optional(),
 })
 
 export const paginationSchema = z.object({

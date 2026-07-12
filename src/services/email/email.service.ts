@@ -229,4 +229,82 @@ export const emailService = {
   trackOpen: async (trackingId: string) => {
     await emailRepo.trackOpen(trackingId)
   },
+
+  getAnalytics: async (owner: string) => {
+    const [statusCounts, sendsOverTime, openRateByTone, recentApps, recentEmails] =
+      await Promise.all([
+        applicationRepo.countsByStatus(owner),
+        emailRepo.sendsOverTime(owner),
+        emailRepo.openRateByTone(owner),
+        applicationRepo.findRecent(owner),
+        emailRepo.findRecent(owner),
+      ])
+
+    // Format sendsOverTime to include all dates in the past 30 days even if count was 0
+    const sendsMap = new Map(sendsOverTime.map((d) => [d._id, d.count]))
+    const history: { date: string; count: number }[] = []
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().slice(0, 10)
+      history.push({ date: dateStr, count: sendsMap.get(dateStr) || 0 })
+    }
+
+    // Format tone stats
+    const tones: Record<string, { sent: number; opened: number }> = {
+      formal: { sent: 0, opened: 0 },
+      casual: { sent: 0, opened: 0 },
+      aggressive: { sent: 0, opened: 0 },
+    }
+    for (const r of openRateByTone) {
+      if (r._id in tones) {
+        tones[r._id] = { sent: r.sent, opened: r.opened }
+      }
+    }
+
+    // Build timeline activities
+    const activities: { id: string; type: 'application_added' | 'email_sent' | 'email_opened'; timestamp: Date; details: string }[] = []
+
+    for (const app of recentApps) {
+      const companyName =
+        app.company && typeof app.company === 'object' && 'name' in app.company
+          ? (app.company as { name: string }).name
+          : 'Unknown Company'
+      activities.push({
+        id: `app-${app._id.toString()}`,
+        type: 'application_added',
+        timestamp: app.createdAt as unknown as Date,
+        details: `Applied for ${app.role} at ${companyName}`,
+      })
+    }
+
+    for (const email of recentEmails) {
+      if (email.sentAt) {
+        activities.push({
+          id: `sent-${email._id.toString()}`,
+          type: 'email_sent',
+          timestamp: email.sentAt as unknown as Date,
+          details: `Sent "${email.subject}" to ${email.to || 'Unknown'}`,
+        })
+      }
+      if (email.openedAt && email.openCount > 0) {
+        activities.push({
+          id: `open-${email._id.toString()}`,
+          type: 'email_opened',
+          timestamp: email.openedAt as unknown as Date,
+          details: `Email "${email.subject}" was opened`,
+        })
+      }
+    }
+
+    // Sort activities by timestamp desc and take top 8
+    activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+    return {
+      applicationsByStatus: statusCounts,
+      emailsSentOverTime: history,
+      openRateByTone: tones,
+      recentActivities: activities.slice(0, 8),
+    }
+  },
 }

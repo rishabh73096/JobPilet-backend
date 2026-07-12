@@ -47,4 +47,57 @@ export const emailRepo = {
     await email.save()
     return email
   },
+
+  sendsOverTime: async (owner: string, days = 30) => {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+    return EmailModel.aggregate<{ _id: string; count: number }>([
+      {
+        $match: {
+          owner: new Types.ObjectId(owner),
+          status: 'sent',
+          sentAt: { $gte: cutoff },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$sentAt' } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ])
+  },
+
+  openRateByTone: async (owner: string) => {
+    return EmailModel.aggregate<{
+      _id: EmailTone
+      sent: number
+      opened: number
+    }>([
+      {
+        $match: {
+          owner: new Types.ObjectId(owner),
+          status: 'sent',
+        },
+      },
+      {
+        $group: {
+          _id: '$tone',
+          sent: { $sum: 1 },
+          opened: {
+            $sum: {
+              $cond: [{ $gt: ['$openCount', 0] }, 1, 0],
+            },
+          },
+        },
+      },
+    ])
+  },
+
+  findRecent: (owner: string, limit = 5) =>
+    EmailModel.find({ owner, status: { $ne: 'draft' } })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean<EmailDoc[]>(),
 }

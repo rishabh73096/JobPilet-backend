@@ -21,6 +21,7 @@ emailRouter.use(authenticate)
 emailRouter.post('/generate', emailSendLimiter, validate(generateEmailSchema), emailController.generate)
 emailRouter.get('/', emailController.getAll)
 emailRouter.get('/stats', emailController.getStats)
+emailRouter.get('/analytics', emailController.getAnalytics)
 emailRouter.post(
   '/bulk-schedule',
   emailSendLimiter,

@@ -92,4 +92,11 @@ export const emailController = {
     res.set('Cache-Control', 'no-store')
     res.send(TRACKING_PIXEL)
   },
+
+  getAnalytics: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const stats = await emailService.getAnalytics(req.userId!)
+      res.json({ success: true, data: stats, message: 'OK' })
+    } catch (err) { next(err) }
+  },
 }

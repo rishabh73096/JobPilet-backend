@@ -2,6 +2,7 @@ import type { Response, NextFunction } from 'express'
 import { userService } from '@/services/user/user.service'
 import { paginationSchema } from '@/validators/user.validator'
 import type { AuthRequest } from '@/middleware/auth.middleware'
+import { AppError } from '@/middleware/error.middleware'
 
 export const userController = {
   getAll: async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -21,6 +22,9 @@ export const userController = {
 
   update: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      if (req.params.id !== req.userId && req.userRole !== 'admin') {
+        throw new AppError(403, 'You do not have permission to update this user')
+      }
       const user = await userService.update(req.params.id, req.body)
       res.json({ success: true, data: user, message: 'Updated successfully' })
     } catch (err) { next(err) }
