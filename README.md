@@ -134,4 +134,40 @@ This application supports Time-based One-Time Password (TOTP) Multi-Factor Authe
    - Authorized user initiates setup by making a `POST` request to `/api/auth/mfa/setup`, which returns a base32 text secret and a base64 encoded QR code Data URL.
    - The user scans the QR code in their authenticator app (e.g. Google Authenticator) and submits their first 6-digit verification code to `POST /api/auth/mfa/enable`. On successful verification, the database flag `mfaEnabled` is flipped to `true`.
 
+## Gmail OAuth Integration & Outreach Delivery
+
+Users can connect their personal Google / Gmail account to send cold outreach emails directly from their own inbox.
+
+### Setup
+1. In [Google Cloud Console](https://console.cloud.google.com/), create an OAuth 2.0 Client ID (Web application type).
+2. Set **Authorized redirect URIs** to: `http://localhost:4000/api/google/callback` (dev) or your production API URL.
+3. Add the following to your `.env`:
+```env
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:4000/api/google/callback
+```
+
+### How it works
+- **Connect**: User clicks "Connect Gmail" in Settings — they are redirected to Google's consent screen (requesting `gmail.send` and `gmail.readonly` scopes).
+- **Callback**: Google redirects back to `/api/google/callback?code=...&state=userId`. The backend exchanges the code for access/refresh tokens and stores them in MongoDB.
+- **Delivery**: When a cold email is sent, `email.service.ts` checks if `user.googleRefreshToken` exists. If set, it constructs an RFC 5322 raw MIME message, base64url-encodes it, and sends it via `gmail.users.messages.send`. Otherwise, it falls back to the Resend API.
+- **Disconnect**: `POST /api/google/disconnect` clears the tokens from the database.
+
+## IMAP Reply Polling & AI Classification
+
+The background worker (`worker.ts`) polls Gmail threads every **5 minutes** for all users with a connected Google account.
+
+### How it works
+1. Finds applications with status `applied` or `interview` that have a sent email with a `gmailThreadId`.
+2. Fetches the Gmail thread via `gmail.users.threads.get`.
+3. Identifies new messages (sender ≠ user's Google email) not yet processed.
+4. Extracts the message body (plain text, or falls back to snippet).
+5. Sends the body to the **Gemini AI Reply Classifier** (`src/ai/reply-classifier.ts`) which returns:
+   - `classification`: `interview` | `rejection` | `follow_up` | `other`
+   - `summary`: brief explanation of the email
+   - `confidence`: 0–1 confidence score
+6. If classified as `interview` or `rejection`, automatically updates the Kanban application status.
+7. Marks the Gmail message ID as processed to prevent duplicate classifications.
+
 #   J o b P i l e t - b a c k e n d

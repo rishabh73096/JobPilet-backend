@@ -24,6 +24,9 @@ const emailSchema = new Schema(
     jobId: { type: String },
     sentAt: { type: Date },
     resendId: { type: String },
+    gmailMessageId: { type: String },
+    gmailThreadId: { type: String },
+    processedMessageIds: { type: [String], default: [] },
     errorMessage: { type: String },
   },
   { timestamps: true }

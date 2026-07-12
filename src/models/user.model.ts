@@ -12,6 +12,9 @@ const userSchema = new Schema(
     resumeName: { type: String },
     mfaSecret: { type: String, select: false },
     mfaEnabled: { type: Boolean, default: false },
+    googleAccessToken: { type: String },
+    googleRefreshToken: { type: String },
+    googleEmail: { type: String },
   },
   { timestamps: true }
 )
@@ -29,6 +32,7 @@ export interface PublicUser {
   role: string
   resumeKey?: string
   resumeName?: string
+  googleEmail?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -42,6 +46,7 @@ export function toPublicUser(user: User): PublicUser {
     role: user.role,
     resumeKey: user.resumeKey ?? undefined,
     resumeName: user.resumeName ?? undefined,
+    googleEmail: user.googleEmail ?? undefined,
     createdAt: user.createdAt as unknown as Date,
     updatedAt: user.updatedAt as unknown as Date,
   }

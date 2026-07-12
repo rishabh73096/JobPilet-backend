@@ -6,8 +6,11 @@ import { resend } from '@/email/resend'
 import { emailQueue } from '@/jobs/email.queue'
 import { interpolateTemplate } from '@/utils/template'
 import { EmailNotFoundError } from './email.errors'
+import { UserNotFoundError } from '@/services/user/user.errors'
 import { AppError } from '@/middleware/error.middleware'
 import { toPublicEmail, type EmailStatus } from '@/models/email.model'
+import { UserModel } from '@/models/user.model'
+import { getGmailClient } from '@/lib/google'
 import { env } from '@/config/env'
 import type {
   GenerateEmailDto,
@@ -85,10 +88,9 @@ export const emailService = {
 
   // Core delivery logic — shared by the immediate "send now" endpoint and the
   // BullMQ worker processing scheduled sends.
-  deliverEmail: async (emailId: string, owner: string) => {
-    const email = await emailRepo.findById(emailId, owner)
-    if (!email) throw new EmailNotFoundError(emailId)
-    if (email.status === 'sent') return toPublicEmail(email)
+  deliverEmail: async (id: string, owner: string) => {
+    const email = await emailRepo.findById(id, owner)
+    if (!email) throw new EmailNotFoundError(id)
 
     if (!email.to) {
       email.status = 'failed'
@@ -96,6 +98,9 @@ export const emailService = {
       await email.save()
       throw new AppError(400, 'Recipient email is required')
     }
+
+    const user = await UserModel.findById(owner)
+    if (!user) throw new UserNotFoundError(owner)
 
     const application = await applicationRepo.findById(email.application.toString(), owner)
     const companyName =
@@ -111,22 +116,59 @@ export const emailService = {
     const htmlBody = `${bodyText.replace(/\n/g, '<br/>')}${trackingPixel}`
 
     try {
-      const result = await resend.emails.send({
-        from: env.EMAIL_FROM,
-        to: email.to,
-        subject,
-        html: htmlBody,
-      })
-      if (result.error) throw new Error(result.error.message)
+      if (user.googleRefreshToken) {
+        // Send via Gmail API!
+        const rawMessage = [
+          `From: "${user.name}" <${user.googleEmail}>`,
+          `To: ${email.to}`,
+          `Subject: =?utf-8?B?${Buffer.from(subject).toString('base64')}?=`,
+          'MIME-Version: 1.0',
+          'Content-Type: text/html; charset=utf-8',
+          'Content-Transfer-Encoding: base64',
+          '',
+          htmlBody,
+        ].join('\r\n')
 
-      email.status = 'sent'
-      email.sentAt = new Date()
-      email.resendId = result.data?.id
-      email.jobId = undefined
-      await email.save()
+        const encodedMessage = Buffer.from(rawMessage)
+          .toString('base64')
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '')
+
+        const gmail = await getGmailClient(user)
+        const sendResult = await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: {
+            raw: encodedMessage,
+          },
+        })
+
+        email.status = 'sent'
+        email.sentAt = new Date()
+        email.gmailMessageId = sendResult.data.id ?? undefined
+        email.gmailThreadId = sendResult.data.threadId ?? undefined
+        email.jobId = undefined
+        await email.save()
+      } else {
+        // Fallback to Resend API
+        const result = await resend.emails.send({
+          from: env.EMAIL_FROM,
+          to: email.to,
+          subject,
+          html: htmlBody,
+        })
+        if (result.error) throw new Error(result.error.message)
+
+        email.status = 'sent'
+        email.sentAt = new Date()
+        email.resendId = result.data?.id
+        email.jobId = undefined
+        await email.save()
+      }
 
       await applicationRepo.recordEmailSent(email.application.toString(), owner)
     } catch (err) {
+      console.error('[deliverEmail Error]', err)
       email.status = 'failed'
       email.errorMessage = err instanceof Error ? err.message : 'Unknown error'
       await email.save()

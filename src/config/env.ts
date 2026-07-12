@@ -31,6 +31,9 @@ const schema = z.object({
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   S3_BUCKET_NAME: z.string().optional(),
   RESUME_CDN_URL: optionalUrl,
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().optional(),
 })
 
 const parsed = schema.safeParse(process.env)
