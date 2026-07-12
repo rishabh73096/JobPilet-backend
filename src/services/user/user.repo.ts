@@ -10,10 +10,10 @@ function searchFilter(search?: string) {
 
 export const userRepo = {
   findById: (id: string) =>
-    UserModel.findById(id).lean<User>(),
+    UserModel.findById(id).select('+mfaSecret').lean<User>(),
 
   findByEmail: (email: string) =>
-    UserModel.findOne({ email }).select('+password').lean<User>(),
+    UserModel.findOne({ email }).select('+password +mfaSecret').lean<User>(),
 
   findAll: ({ page, limit, search }: PaginationDto) =>
     UserModel.find(searchFilter(search))

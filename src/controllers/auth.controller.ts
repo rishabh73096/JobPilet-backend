@@ -29,4 +29,34 @@ export const authController = {
     // If using refresh tokens, invalidate here via Redis
     res.json({ success: true, data: null, message: 'Logged out successfully' })
   },
+
+  mfaSetup: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await authService.mfaSetup(req.userId!)
+      res.json({ success: true, data: result, message: 'MFA setup initiated' })
+    } catch (err) { next(err) }
+  },
+
+  mfaEnable: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { code } = req.body
+      const result = await authService.mfaEnable(req.userId!, code)
+      res.json(result)
+    } catch (err) { next(err) }
+  },
+
+  mfaDisable: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await authService.mfaDisable(req.userId!)
+      res.json(result)
+    } catch (err) { next(err) }
+  },
+
+  mfaVerify: async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { tempToken, code } = req.body
+      const result = await authService.mfaVerify(tempToken, code)
+      res.json({ success: true, data: result, message: 'MFA verification successful' })
+    } catch (err) { next(err) }
+  },
 }

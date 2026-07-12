@@ -10,6 +10,8 @@ const userSchema = new Schema(
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
     resumeKey: { type: String },
     resumeName: { type: String },
+    mfaSecret: { type: String, select: false },
+    mfaEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 )

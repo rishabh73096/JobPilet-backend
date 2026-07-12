@@ -11,3 +11,8 @@ authRouter.post('/register', authLimiter, validate(registerSchema), authControll
 authRouter.post('/login', authLimiter, validate(loginSchema), authController.login)
 authRouter.post('/logout', authenticate, authController.logout)
 authRouter.get('/me', authenticate, authController.me)
+
+authRouter.post('/mfa/setup', authenticate, authController.mfaSetup)
+authRouter.post('/mfa/enable', authenticate, authController.mfaEnable)
+authRouter.post('/mfa/disable', authenticate, authController.mfaDisable)
+authRouter.post('/mfa/verify', authLimiter, authController.mfaVerify)
