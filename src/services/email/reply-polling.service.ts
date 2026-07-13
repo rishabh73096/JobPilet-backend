@@ -27,7 +27,7 @@ export const replyPollingService = {
     // 1. Fetch active applications (applied or interview)
     const activeApps = await ApplicationModel.find({
       owner: user._id,
-      status: { $in: ['applied', 'interview'] },
+      status: { $in: ['applied', 'interviewing'] },
     })
 
     if (activeApps.length === 0) return
@@ -112,7 +112,7 @@ export const replyPollingService = {
           if (app) {
             let nextStatus: string | null = null
             if (classificationResult.classification === 'interview') {
-              nextStatus = 'interview'
+              nextStatus = 'interviewing' // maps to correct APPLICATION_STATUSES enum value
             } else if (classificationResult.classification === 'rejection') {
               nextStatus = 'rejected'
             }

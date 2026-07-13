@@ -138,21 +138,18 @@ describe('Auth API — Integration Tests', () => {
 
   // ─── MFA Flow ─────────────────────────────────────────────────────────────
   describe('MFA Flow', () => {
-    let token: string
-
-    beforeAll(async () => {
-      const res = await request(app).post('/api/auth/register').send({
-        name: 'MFA User',
-        email: 'mfa@example.com',
+    it('200 — POST /api/auth/mfa/setup returns secret and QR code', async () => {
+      // Self-contained: create user fresh inside this test
+      const setupRes = await request(app).post('/api/auth/register').send({
+        name: 'MFA Setup User',
+        email: 'mfa-setup@example.com',
         password: 'Password123!',
       })
-      token = res.body.data.token
-    })
+      const mfaToken = setupRes.body.data.token
 
-    it('200 — POST /api/auth/mfa/setup returns secret and QR code', async () => {
       const res = await request(app)
         .post('/api/auth/mfa/setup')
-        .set('Authorization', `Bearer ${token}`)
+        .set('Authorization', `Bearer ${mfaToken}`)
 
       expect(res.status).toBe(200)
       expect(res.body.data.secret).toBeDefined()
@@ -160,14 +157,23 @@ describe('Auth API — Integration Tests', () => {
     })
 
     it('400 — POST /api/auth/mfa/enable with wrong code returns error', async () => {
-      // Setup first
+      // Self-contained: create user fresh and run setup within same test
+      const regRes = await request(app).post('/api/auth/register').send({
+        name: 'MFA Enable User',
+        email: 'mfa-enable@example.com',
+        password: 'Password123!',
+      })
+      const mfaToken = regRes.body.data.token
+
+      // Setup first (saves mfaSecret to the user doc in MongoDB)
       await request(app)
         .post('/api/auth/mfa/setup')
-        .set('Authorization', `Bearer ${token}`)
+        .set('Authorization', `Bearer ${mfaToken}`)
 
+      // Now try enable with a wrong code — same token, same user still in DB
       const res = await request(app)
         .post('/api/auth/mfa/enable')
-        .set('Authorization', `Bearer ${token}`)
+        .set('Authorization', `Bearer ${mfaToken}`)
         .send({ code: '000000' }) // invalid code
 
       expect(res.status).toBe(400)

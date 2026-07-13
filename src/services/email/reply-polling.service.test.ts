@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { replyPollingService } from '@/services/email/reply-polling.service'
 import { UserModel } from '@/models/user.model'
 import { ApplicationModel } from '@/models/application.model'
+import { CompanyModel } from '@/models/company.model'
 import { EmailModel } from '@/models/email.model'
 import { classifyRecruiterReply } from '@/ai/reply-classifier'
 
@@ -26,10 +27,12 @@ const buildUser = async (extra = {}) => {
 }
 
 const buildApplication = async (userId: string, status = 'applied') => {
+  // Must create a real Company document; the schema stores company as an ObjectId ref
+  const company = await CompanyModel.create({ owner: userId, name: 'ACME' })
   return await ApplicationModel.create({
     owner: userId,
-    jobTitle: 'Engineer',
-    company: { name: 'ACME' },
+    company: company._id,
+    role: 'Engineer',   // required field (the job role/title string)
     status,
   })
 }
@@ -140,7 +143,7 @@ describe('replyPollingService — Unit Tests', () => {
     await replyPollingService.pollUserReplies(user)
 
     const updatedApp = await ApplicationModel.findById(app._id)
-    expect(updatedApp?.status).toBe('interview')
+    expect(updatedApp?.status).toBe('interviewing') // service maps 'interview' classification → 'interviewing'
 
     const updatedEmail = await EmailModel.findById(email._id)
     expect(updatedEmail?.processedMessageIds).toContain('recruiter-msg-1')
@@ -154,6 +157,12 @@ describe('replyPollingService — Unit Tests', () => {
     const mockThreadGet = vi.fn().mockResolvedValue({
       data: {
         messages: [
+          {
+            // The original email sent by the user (not a reply)
+            id: 'sent-msg-reject',
+            payload: { headers: [{ name: 'From', value: 'polluser@gmail.com' }] },
+            snippet: 'Cold email I sent',
+          },
           {
             id: 'recruiter-reject-1',
             payload: {
@@ -192,6 +201,12 @@ describe('replyPollingService — Unit Tests', () => {
     const mockThreadGet = vi.fn().mockResolvedValue({
       data: {
         messages: [
+          {
+            // The original email sent by the user (not a reply)
+            id: 'sent-msg-followup',
+            payload: { headers: [{ name: 'From', value: 'polluser@gmail.com' }] },
+            snippet: 'Cold email I sent',
+          },
           {
             id: 'recruiter-followup-1',
             payload: {
@@ -240,6 +255,12 @@ describe('replyPollingService — Unit Tests', () => {
     const mockThreadGet = vi.fn().mockResolvedValue({
       data: {
         messages: [
+          {
+            // Original sent message so thread length > 1
+            id: 'my-sent-msg',
+            payload: { headers: [{ name: 'From', value: 'polluser@gmail.com' }] },
+            snippet: 'My original cold email',
+          },
           {
             id: 'already-processed-1',
             payload: { headers: [{ name: 'From', value: 'recruiter@c.com' }] },

@@ -1,27 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { classifyRecruiterReply } from '@/ai/reply-classifier'
 
-// Mock Gemini API
-vi.mock('@google/generative-ai', () => {
-  return {
-    GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-      getGenerativeModel: vi.fn().mockReturnValue({
-        generateContent: vi.fn(),
-      }),
-    })),
-    SchemaType: {
-      OBJECT: 'object',
-      STRING: 'string',
-      NUMBER: 'number',
-    },
-  }
-})
+// Mock the gemini singleton BEFORE importing reply-classifier
+const mockGenerateContent = vi.fn()
 
-const getMockModel = async () => {
-  const { GoogleGenerativeAI } = await import('@google/generative-ai')
-  const instance = new GoogleGenerativeAI('test-key')
-  return instance.getGenerativeModel({ model: 'gemini-1.5-flash' })
-}
+vi.mock('@/ai/gemini', () => ({
+  geminiModel: {
+    generateContent: mockGenerateContent,
+  },
+}))
+
+// Must be imported AFTER the mock is set up
+const { classifyRecruiterReply } = await import('@/ai/reply-classifier')
 
 describe('classifyRecruiterReply — Unit Tests', () => {
   beforeEach(() => {
@@ -29,8 +18,7 @@ describe('classifyRecruiterReply — Unit Tests', () => {
   })
 
   it('classifies interview invitation correctly', async () => {
-    const model = await getMockModel()
-    ;(model.generateContent as any).mockResolvedValueOnce({
+    mockGenerateContent.mockResolvedValueOnce({
       response: {
         text: () =>
           JSON.stringify({
@@ -51,8 +39,7 @@ describe('classifyRecruiterReply — Unit Tests', () => {
   })
 
   it('classifies rejection correctly', async () => {
-    const model = await getMockModel()
-    ;(model.generateContent as any).mockResolvedValueOnce({
+    mockGenerateContent.mockResolvedValueOnce({
       response: {
         text: () =>
           JSON.stringify({
@@ -72,8 +59,7 @@ describe('classifyRecruiterReply — Unit Tests', () => {
   })
 
   it('classifies follow-up correctly', async () => {
-    const model = await getMockModel()
-    ;(model.generateContent as any).mockResolvedValueOnce({
+    mockGenerateContent.mockResolvedValueOnce({
       response: {
         text: () =>
           JSON.stringify({
@@ -92,8 +78,7 @@ describe('classifyRecruiterReply — Unit Tests', () => {
   })
 
   it('returns valid schema shape for all classifications', async () => {
-    const model = await getMockModel()
-    ;(model.generateContent as any).mockResolvedValueOnce({
+    mockGenerateContent.mockResolvedValueOnce({
       response: {
         text: () =>
           JSON.stringify({
@@ -116,8 +101,7 @@ describe('classifyRecruiterReply — Unit Tests', () => {
   })
 
   it('throws on Gemini API error', async () => {
-    const model = await getMockModel()
-    ;(model.generateContent as any).mockRejectedValueOnce(new Error('Gemini API quota exceeded'))
+    mockGenerateContent.mockRejectedValueOnce(new Error('Gemini API quota exceeded'))
 
     await expect(classifyRecruiterReply('Some text')).rejects.toThrow()
   })
